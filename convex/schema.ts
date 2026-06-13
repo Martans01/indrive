@@ -59,6 +59,9 @@ export default defineSchema({
     refuels: v.array(refuel),
     expenses: v.array(expense),
     snapshot: v.optional(snapshot),
+    // Sincronización del neto hacia FinanzApp (ingreso). Se marca true cuando
+    // el ingreso quedó registrado allá; evita reemitir el mismo neto.
+    syncedToFinanzApp: v.optional(v.boolean()),
   }).index("by_status", ["status"]),
 
   looseRefuels: defineTable({

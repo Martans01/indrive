@@ -8,9 +8,11 @@
  * @module
  */
 
+import type * as crons from "../crons.js";
 import type * as model from "../model.js";
 import type * as mutations from "../mutations.js";
 import type * as queries from "../queries.js";
+import type * as sync from "../sync.js";
 
 import type {
   ApiFromModules,
@@ -19,9 +21,11 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  crons: typeof crons;
   model: typeof model;
   mutations: typeof mutations;
   queries: typeof queries;
+  sync: typeof sync;
 }>;
 
 /**

@@ -1,5 +1,6 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import {
   blendGasFactor,
   computeSnapshot,
@@ -29,6 +30,9 @@ export const endJornada = mutation({
   handler: async (ctx, { id, endRange }) => {
     const j = await ctx.db.get(id);
     if (!j) throw new Error("Jornada no encontrada");
+    // No re-cerrar una jornada ya cerrada: recalcularía el snapshot con la
+    // comisión/factor de AHORA y reemitiría un neto distinto a FinanzApp.
+    if (j.status !== "active") throw new Error("La jornada ya está cerrada");
     const settings = await getSettingsValues(ctx);
     // Congelamos el cálculo con la comisión y el factor vigentes AHORA.
     const snapshot = computeSnapshot({ ...j, endRange }, settings);
@@ -38,6 +42,13 @@ export const endJornada = mutation({
       status: "closed",
       snapshot,
     });
+    // Emitir la ganancia neta a FinanzApp como ingreso (asíncrono: las mutations
+    // de Convex no permiten fetch). Solo si la jornada fue rentable.
+    if (snapshot.neto > 0) {
+      await ctx.scheduler.runAfter(0, internal.sync.emitToFinanzApp, {
+        jornadaId: id,
+      });
+    }
   },
 });
 
@@ -46,6 +57,7 @@ export const addRide = mutation({
   handler: async (ctx, { id, amount, tip }) => {
     const j = await ctx.db.get(id);
     if (!j) throw new Error("Jornada no encontrada");
+    if (j.status !== "active") throw new Error("La jornada ya está cerrada");
     await ctx.db.patch(id, {
       rides: [...j.rides, { id: uid(), amount, tip, at: new Date().toISOString() }],
     });
@@ -57,6 +69,7 @@ export const addExpense = mutation({
   handler: async (ctx, { id, amount, desc }) => {
     const j = await ctx.db.get(id);
     if (!j) throw new Error("Jornada no encontrada");
+    if (j.status !== "active") throw new Error("La jornada ya está cerrada");
     await ctx.db.patch(id, {
       expenses: [
         ...j.expenses,
@@ -88,6 +101,7 @@ export const addRefuel = mutation({
     if (jornadaId) {
       const j = await ctx.db.get(jornadaId);
       if (!j) throw new Error("Jornada no encontrada");
+      if (j.status !== "active") throw new Error("La jornada ya está cerrada");
       await ctx.db.patch(jornadaId, { refuels: [...j.refuels, rf] });
     } else {
       await ctx.db.insert("looseRefuels", rf);
@@ -101,6 +115,7 @@ export const setCurrentRange = mutation({
   handler: async (ctx, { id, currentRange }) => {
     const j = await ctx.db.get(id);
     if (!j) throw new Error("Jornada no encontrada");
+    if (j.status !== "active") throw new Error("La jornada ya está cerrada");
     await ctx.db.patch(id, { currentRange });
   },
 });
@@ -115,6 +130,14 @@ export const saveSettings = mutation({
 export const deleteJornada = mutation({
   args: { id: v.id("jornadas") },
   handler: async (ctx, { id }) => {
+    const j = await ctx.db.get(id);
+    // Si la jornada ya emitió su neto a FinanzApp, revertir ese ingreso allá
+    // antes de borrarla (evita un ingreso fantasma).
+    if (j?.syncedToFinanzApp) {
+      await ctx.scheduler.runAfter(0, internal.sync.reverseInFinanzApp, {
+        externalId: `indrive:${id}`,
+      });
+    }
     await ctx.db.delete(id);
   },
 });
