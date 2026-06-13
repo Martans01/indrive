@@ -6,6 +6,10 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 
+// Convex inyecta env vars en runtime; este proyecto no incluye @types/node,
+// así que declaramos el global mínimo que usamos.
+declare const process: { env: Record<string, string | undefined> };
+
 /**
  * Sincronización del neto de cada jornada hacia FinanzApp.
  *
@@ -126,7 +130,7 @@ export const reverseInFinanzApp = internalAction({
 // Red de seguridad: reemite las jornadas cerradas que no se sincronizaron.
 export const reconcilePending = internalAction({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<{ pending: number; synced: number }> => {
     const ids = await ctx.runQuery(internal.sync.listPendingSync, {});
     let synced = 0;
     for (const jornadaId of ids) {
