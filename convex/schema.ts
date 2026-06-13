@@ -4,6 +4,9 @@ import { v } from "convex/values";
 const ride = v.object({
   id: v.string(),
   amount: v.number(),
+  // Propina / extra dado aparte. NO paga comisión. Opcional para compatibilidad
+  // con carreras registradas antes de existir este campo.
+  tip: v.optional(v.number()),
   at: v.string(),
 });
 
@@ -27,6 +30,7 @@ const expense = v.object({
 // reescribe retroactivamente las jornadas pasadas.
 const snapshot = v.object({
   bruto: v.number(),
+  propinas: v.optional(v.number()),
   comision: v.number(),
   otros: v.number(),
   consumed: v.number(),
@@ -47,6 +51,9 @@ export default defineSchema({
     endAt: v.union(v.string(), v.null()),
     startRange: v.union(v.number(), v.null()),
     endRange: v.union(v.number(), v.null()),
+    // Lectura de autonomía durante la jornada activa, para estimar la gasolina
+    // consumida en vivo sin tener que cerrarla. Opcional.
+    currentRange: v.optional(v.number()),
     status: v.union(v.literal("active"), v.literal("closed")),
     rides: v.array(ride),
     refuels: v.array(refuel),

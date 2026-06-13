@@ -14,6 +14,7 @@ import {
   Clock,
   Check,
   AlertTriangle,
+  Gauge,
 } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
@@ -29,6 +30,7 @@ type ModalType =
   | "ride"
   | "expense"
   | "refuel"
+  | "currentRange"
   | "settings"
   | "confirmDelete";
 
@@ -84,6 +86,7 @@ export default function App() {
   const mRefuel = useMutation(api.mutations.addRefuel);
   const mSettings = useMutation(api.mutations.saveSettings);
   const mDelete = useMutation(api.mutations.deleteJornada);
+  const mSetCurrent = useMutation(api.mutations.setCurrentRange);
 
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = (m: string) => {
@@ -108,9 +111,9 @@ export default function App() {
     await mEnd({ id: active._id, endRange: range });
     setModal(null);
   };
-  const addRide = async (amount: number) => {
+  const addRide = async (amount: number, tip: number) => {
     if (!active) return;
-    await mRide({ id: active._id, amount });
+    await mRide({ id: active._id, amount, tip: tip > 0 ? tip : undefined });
     setModal(null);
   };
   const addExpense = async (amount: number, desc: string) => {
@@ -125,6 +128,11 @@ export default function App() {
   };
   const saveSettings = async (commissionPct: number, gasFactor: number) => {
     await mSettings({ commissionPct, gasFactor });
+    setModal(null);
+  };
+  const setCurrentRange = async (range: number) => {
+    if (!active) return;
+    await mSetCurrent({ id: active._id, currentRange: range });
     setModal(null);
   };
   const deleteJornada = async (id: JornadaId) => {
@@ -238,11 +246,32 @@ export default function App() {
                   <span className="text-[11px] text-zinc-400">Rango inicio · {active.startRange} km</span>
                 </div>
                 <div className="mb-5">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400 mb-1">Llevas (sin gas)</p>
-                  <p className="text-3xl font-light text-violet-300 tabular-nums">{money(acNetoProv)}</p>
-                  <p className="text-[11px] text-zinc-400 mt-1">
-                    {active.rides.length} carreras · la gasolina se calcula al terminar
-                  </p>
+                  {active.currentRange != null && ac ? (
+                    <>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400 mb-1">
+                        Neto ahora (con gas)
+                      </p>
+                      <p
+                        className={`text-3xl font-light tabular-nums ${
+                          ac.neto < 0 ? "text-rose-400" : "text-violet-300"
+                        }`}
+                      >
+                        {money(ac.neto)}
+                      </p>
+                      <p className="text-[11px] text-zinc-400 mt-1">
+                        {active.rides.length} carreras · gas {Math.round(ac.consumed)} km −{money(ac.gas)} · sin gas{" "}
+                        {money(acNetoProv)}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-zinc-400 mb-1">Llevas (sin gas)</p>
+                      <p className="text-3xl font-light text-violet-300 tabular-nums">{money(acNetoProv)}</p>
+                      <p className="text-[11px] text-zinc-400 mt-1">
+                        {active.rides.length} carreras · toca “Gasolina ahora” para verla en vivo
+                      </p>
+                    </>
+                  )}
                 </div>
                 <button
                   onClick={() => setModal({ type: "ride" })}
@@ -256,6 +285,13 @@ export default function App() {
                   </SoftBtn>
                   <SoftBtn onClick={() => setModal({ type: "expense" })} icon={<Wallet size={16} />}>
                     Otro gasto
+                  </SoftBtn>
+                </div>
+                <div className="mb-2.5">
+                  <SoftBtn onClick={() => setModal({ type: "currentRange" })} icon={<Gauge size={16} />}>
+                    {active.currentRange != null
+                      ? `Gasolina ahora · marca ${active.currentRange} km`
+                      : "Gasolina ahora"}
                   </SoftBtn>
                 </div>
                 <button
@@ -350,7 +386,8 @@ export default function App() {
                           </div>
                         </div>
                         <div className="grid grid-cols-2 gap-y-1 text-[12px]">
-                          <Row label={`${j.rides.length} carreras`} value={money(c.bruto)} />
+                          <Row label={`${j.rides.length} carreras`} value={money(c.bruto - c.propinas)} />
+                          {c.propinas > 0 && <Row label="Propinas" value={`+${money(c.propinas)}`} />}
                           <Row label="Comisión" value={`−${money(c.comision)}`} muted />
                           <Row label={`Gas · ${Math.round(c.consumed)} km`} value={`−${money(c.gas)}`} muted />
                           {c.otros > 0 && <Row label="Otros" value={`−${money(c.otros)}`} muted />}
@@ -401,6 +438,7 @@ export default function App() {
           onRefuel={addRefuel}
           onSettings={saveSettings}
           onDelete={deleteJornada}
+          onSetCurrent={setCurrentRange}
         />
       )}
     </div>
@@ -428,7 +466,7 @@ function SoftBtn({
   return (
     <button
       onClick={onClick}
-      className="rounded-2xl py-3 flex items-center justify-center gap-2 text-[13px] bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-all duration-200 active:scale-[0.97]"
+      className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 text-[13px] bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-all duration-200 active:scale-[0.97]"
     >
       {icon}
       {children}
@@ -520,11 +558,12 @@ type ModalProps = {
   onClose: () => void;
   onStart: (range: number) => void;
   onEnd: (range: number) => void;
-  onRide: (amount: number) => void;
+  onRide: (amount: number, tip: number) => void;
   onExpense: (amount: number, desc: string) => void;
   onRefuel: (before: number, after: number, cost: number | null) => void;
   onSettings: (commissionPct: number, gasFactor: number) => void;
   onDelete: (id: JornadaId) => void;
+  onSetCurrent: (range: number) => void;
 };
 
 const TITLES: Record<ModalType, string> = {
@@ -533,6 +572,7 @@ const TITLES: Record<ModalType, string> = {
   ride: "Nueva carrera",
   expense: "Otro gasto",
   refuel: "Registrar recarga",
+  currentRange: "Gasolina hasta ahora",
   settings: "Configuración",
   confirmDelete: "Borrar jornada",
 };
@@ -549,8 +589,13 @@ function Modal({
   onRefuel,
   onSettings,
   onDelete,
+  onSetCurrent,
 }: ModalProps) {
-  const [a, setA] = useState("");
+  const [a, setA] = useState(
+    modal.type === "currentRange" && active?.currentRange != null
+      ? String(active.currentRange)
+      : ""
+  );
   const [b, setB] = useState("");
   const [c, setC] = useState("");
   const [desc, setDesc] = useState("");
@@ -574,9 +619,12 @@ function Modal({
   const num = (s: string) => parseFloat(s);
   const f = num(factor) || settings.gasFactor;
 
-  const endPreview = (() => {
-    if (modal.type !== "endJornada" || !active || a === "") return null;
-    const consumed = Math.max(0, active.startRange! - num(a) + sumRefuelRange(active.refuels));
+  // Vista previa de consumo/gas para los modales que usan una lectura de
+  // autonomía: terminar jornada y "gasolina ahora".
+  const usesRange = modal.type === "endJornada" || modal.type === "currentRange";
+  const consumoPreview = (() => {
+    if (!usesRange || !active || a === "") return null;
+    const consumed = Math.max(0, (active.startRange ?? 0) - num(a) + sumRefuelRange(active.refuels));
     return { consumed, gas: consumed * settings.gasFactor };
   })();
 
@@ -585,9 +633,13 @@ function Modal({
       ? "El rango después de tanquear debe ser mayor que el de antes."
       : undefined;
 
-  const endWarning =
-    modal.type === "endJornada" && active && a !== "" && num(a) > (active.startRange ?? 0)
-      ? "La autonomía final es mayor que la inicial. ¿Faltó registrar una recarga?"
+  // Solo avisamos si la autonomía indicada supera lo explicable: rango inicial +
+  // recargas YA registradas. Si recargaste y lo anotaste, marcar más que al
+  // inicio es normal y no dispara la alerta.
+  const expectedMax = active ? (active.startRange ?? 0) + sumRefuelRange(active.refuels) : 0;
+  const rangeWarning =
+    usesRange && active && a !== "" && num(a) > expectedMax
+      ? "La autonomía indicada supera al rango inicial más las recargas registradas. ¿Faltó registrar una recarga?"
       : undefined;
 
   const titleId = "modal-title";
@@ -650,13 +702,13 @@ function Modal({
               min={0}
               autoFocus
               hint="Lo que marca el tablero al terminar."
-              error={endWarning}
+              error={rangeWarning}
             />
-            {endPreview && (
+            {consumoPreview && (
               <div className="rounded-xl bg-zinc-900 p-3.5 mb-4 a-pop">
                 <p className="text-[11px] uppercase tracking-wide text-zinc-400">Gasolina de la jornada</p>
                 <p className="font-light text-amber-400 text-lg tabular-nums">
-                  {Math.round(endPreview.consumed)} km · {money(endPreview.gas)}
+                  {Math.round(consumoPreview.consumed)} km · {money(consumoPreview.gas)}
                 </p>
               </div>
             )}
@@ -666,18 +718,57 @@ function Modal({
           </>
         )}
 
+        {modal.type === "currentRange" && (
+          <>
+            <Field
+              label="¿Cuánto marca el tablero ahora? (km)"
+              value={a}
+              onChange={setA}
+              placeholder="170"
+              step="1"
+              inputMode="numeric"
+              min={0}
+              autoFocus
+              hint="La autonomía actual. La jornada sigue abierta; esto solo estima la gasolina gastada hasta ahora."
+              error={rangeWarning}
+            />
+            {consumoPreview && (
+              <div className="rounded-xl bg-zinc-900 p-3.5 mb-4 a-pop">
+                <p className="text-[11px] uppercase tracking-wide text-zinc-400">Gasolina hasta ahora</p>
+                <p className="font-light text-amber-400 text-lg tabular-nums">
+                  {Math.round(consumoPreview.consumed)} km · {money(consumoPreview.gas)}
+                </p>
+              </div>
+            )}
+            <Btn disabled={a === "" || num(a) < 0} onClick={() => onSetCurrent(num(a))}>
+              Guardar lectura
+            </Btn>
+          </>
+        )}
+
         {modal.type === "ride" && (
           <>
             <Field
-              label="Monto de la carrera ($)"
+              label="Tarifa de la carrera ($)"
               value={a}
               onChange={setA}
-              placeholder="5.00"
+              placeholder="4.50"
               min={0}
               autoFocus
-              hint={`Se descuenta la comisión de ${settings.commissionPct}% automáticamente.`}
+              hint={`Lo que marca la app. Se le descuenta la comisión de ${settings.commissionPct}%.`}
             />
-            <Btn disabled={a === "" || !(num(a) > 0)} onClick={() => onRide(num(a))}>
+            <Field
+              label="Propina / extra sin comisión ($)"
+              value={b}
+              onChange={setB}
+              placeholder="0.50"
+              min={0}
+              hint="Lo que te dieron de más (no paga comisión). Déjalo vacío si no hubo."
+            />
+            <Btn
+              disabled={a === "" || !(num(a) > 0)}
+              onClick={() => onRide(num(a), b === "" ? 0 : num(b) || 0)}
+            >
               Agregar
             </Btn>
           </>
@@ -756,7 +847,9 @@ function Modal({
               value={comm}
               onChange={setComm}
               placeholder="12.99"
+              step="any"
               min={0}
+              hint="Puedes poner los decimales exactos (ej. 12.999999 o 13)."
               error={
                 comm !== "" && (num(comm) < 0 || num(comm) > 100)
                   ? "La comisión debe estar entre 0 y 100."

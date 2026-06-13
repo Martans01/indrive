@@ -18,6 +18,7 @@ export const sumRefuelRange = (
 
 export type JornadaCalc = {
   bruto: number;
+  propinas: number;
   comision: number;
   otros: number;
   consumed: number;
@@ -28,23 +29,37 @@ export type JornadaCalc = {
 export function calcJornada(j: Jornada, settings: Settings): JornadaCalc {
   // Jornadas cerradas: leer el snapshot congelado al cerrar (histórico estable).
   if (j.status === "closed" && j.snapshot) {
-    const { bruto, comision, otros, consumed, gas, neto } = j.snapshot;
-    return { bruto, comision, otros, consumed, gas, neto };
+    const s = j.snapshot;
+    return {
+      bruto: s.bruto,
+      propinas: s.propinas ?? 0,
+      comision: s.comision,
+      otros: s.otros,
+      consumed: s.consumed,
+      gas: s.gas,
+      neto: s.neto,
+    };
   }
 
   // Jornada activa (o cerrada sin snapshot): cálculo en vivo.
-  const bruto = (j.rides ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
-  const comision = bruto * (settings.commissionPct / 100);
+  // La comisión solo aplica a la tarifa; las propinas suman al bruto sin comisión.
+  const fares = (j.rides ?? []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const propinas = (j.rides ?? []).reduce((s, r) => s + (Number(r.tip) || 0), 0);
+  const bruto = fares + propinas;
+  const comision = fares * (settings.commissionPct / 100);
   const otros = (j.expenses ?? []).reduce((s, e) => s + (Number(e.amount) || 0), 0);
 
+  // Punto final de medición: el rango final si ya cerró, o la lectura actual
+  // (currentRange) si la jornada sigue activa. Permite ver el gas en vivo.
+  const endpoint = j.endRange ?? j.currentRange ?? null;
   let consumed = 0;
   let gas = 0;
-  if (j.startRange != null && j.endRange != null) {
-    consumed = Math.max(0, j.startRange - j.endRange + sumRefuelRange(j.refuels));
+  if (j.startRange != null && endpoint != null) {
+    consumed = Math.max(0, j.startRange - endpoint + sumRefuelRange(j.refuels));
     gas = consumed * settings.gasFactor;
   }
 
-  return { bruto, comision, otros, consumed, gas, neto: bruto - comision - gas - otros };
+  return { bruto, propinas, comision, otros, consumed, gas, neto: bruto - comision - gas - otros };
 }
 
 // Gasolina personal estimada: km recorridos ENTRE jornadas (uso no laboral),

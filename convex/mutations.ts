@@ -42,12 +42,12 @@ export const endJornada = mutation({
 });
 
 export const addRide = mutation({
-  args: { id: v.id("jornadas"), amount: v.number() },
-  handler: async (ctx, { id, amount }) => {
+  args: { id: v.id("jornadas"), amount: v.number(), tip: v.optional(v.number()) },
+  handler: async (ctx, { id, amount, tip }) => {
     const j = await ctx.db.get(id);
     if (!j) throw new Error("Jornada no encontrada");
     await ctx.db.patch(id, {
-      rides: [...j.rides, { id: uid(), amount, at: new Date().toISOString() }],
+      rides: [...j.rides, { id: uid(), amount, tip, at: new Date().toISOString() }],
     });
   },
 });
@@ -93,6 +93,15 @@ export const addRefuel = mutation({
       await ctx.db.insert("looseRefuels", rf);
     }
     return { adjusted, gasFactor };
+  },
+});
+
+export const setCurrentRange = mutation({
+  args: { id: v.id("jornadas"), currentRange: v.number() },
+  handler: async (ctx, { id, currentRange }) => {
+    const j = await ctx.db.get(id);
+    if (!j) throw new Error("Jornada no encontrada");
+    await ctx.db.patch(id, { currentRange });
   },
 });
 

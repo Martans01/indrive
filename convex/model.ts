@@ -40,7 +40,7 @@ export async function setSettings(
 
 // --- Snapshot que se congela al cerrar la jornada ---
 type SnapshotInput = {
-  rides: { amount: number }[];
+  rides: { amount: number; tip?: number }[];
   expenses: { amount: number }[];
   refuels: { before: number; after: number }[];
   startRange: number | null;
@@ -51,8 +51,10 @@ export function computeSnapshot(
   j: SnapshotInput,
   settings: { commissionPct: number; gasFactor: number }
 ) {
-  const bruto = j.rides.reduce((s, r) => s + r.amount, 0);
-  const comision = bruto * (settings.commissionPct / 100);
+  const fares = j.rides.reduce((s, r) => s + r.amount, 0); // sujeto a comisión
+  const propinas = j.rides.reduce((s, r) => s + (r.tip ?? 0), 0); // extra sin comisión
+  const bruto = fares + propinas; // total recibido
+  const comision = fares * (settings.commissionPct / 100);
   const otros = j.expenses.reduce((s, e) => s + e.amount, 0);
   let consumed = 0;
   if (j.startRange != null && j.endRange != null) {
@@ -61,6 +63,7 @@ export function computeSnapshot(
   const gas = consumed * settings.gasFactor;
   return {
     bruto,
+    propinas,
     comision,
     otros,
     consumed,
